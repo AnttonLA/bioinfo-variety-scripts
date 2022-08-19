@@ -52,7 +52,8 @@ df['hg38_pos'] = df['hg38_pos_full_LO'].str[0].str[1]
 
 # Cast to int after converting NaNs to 0
 df['hg38_pos'] = df['hg38_pos'].fillna(0).astype(int)
-df['hg38_pos'].replace(0, np.nan)  # Replace 0s back to Nan
+#df['hg38_pos'].replace(0, np.nan)  # Replace 0s back to Nan
+df = df[df['hg38_pos'] != 0]  # Remove rows with 0 as position
 
 # Drop old hg37 position and rename new one to just position. Reorder columns to og order.
 df.drop(pos_col_name, axis=1, inplace=True)
