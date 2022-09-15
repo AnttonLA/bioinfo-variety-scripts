@@ -1,12 +1,9 @@
 # Pipeline to cluster variants and assign closest gene
 
-The following is a pipeline to create a "hits table" out of GWAS results. This is a table that describes the suspected
-"lead variant", and it's putative "target gene", also giving summary GWAS statistics for the variant.
+The following is a pipeline to create a "hits table" out of GWAS results. This is a table that describes the suspected **lead variant**, and it's putative **target gene**, also giving summary GWAS statistics for the variant.
 
-For any number of GWASs, it takes the output GWAS tables, takes only the variants that cross the significance threshold,
-and separates them into chromosomes.
-It then assigns a closest gene to each GWAS hit, and compiles the hits into 'peaks' that should correspond to the peaks
-in a Manhattan plot.
+For any number of GWASs, it takes the output GWAS tables, takes only the variants that cross the significance threshold, and separates them into chromosomes.
+It then assigns a closest gene to each GWAS hit, and compiles the hits into 'peaks' that should correspond to the peaks in a Manhattan plot.
 It then produces yet another table by compiling all of the 'peaks' that share common closest genes.
 
 ### 1-Get .bed files and full tables for all SNPs above significant threshold, separated by phenotype and chromosome

@@ -11,7 +11,7 @@ It uses pandas and the liftover package and it is rather slow :)
 """
 
 if len(sys.argv) != 5:
-    raise ValueError('Wrong input. Expected usage: correct_sample_file.py input_file_path chr_col_name pos_col_name '
+    raise ValueError('Wrong input. Expected usage: lift_over_file.py input_file_path chr_col_name pos_col_name '
                      'output_file_path')
 
 path_to_file = sys.argv[1]
@@ -60,5 +60,6 @@ df.drop(pos_col_name, axis=1, inplace=True)
 df.rename({'hg38_pos': pos_col_name}, axis=1, inplace=True)
 df = df.reindex(columns=original_column_order_list)
 
+df.sort_values([chr_col_name, pos_col_name], inplace=True)  # Sort by chr, pos. TODO: Make this optional
 print("Lftover complete. Writing output to: ", output_filename)
 df.to_csv(output_filename, sep='\t', index=None)
