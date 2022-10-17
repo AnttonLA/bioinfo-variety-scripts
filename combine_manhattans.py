@@ -4,19 +4,41 @@ import sys
 import pandas as pd
 import numpy as np
 
-# This script combines all the GWAS output files in a directory into a single GWAS output file. The output will be
-# stored in the same directory where the input files, in a folder named 'combined_output/'.
+"""
+This script combines all the GWAS output files in a directory into a single GWAS output file. The output will be
+stored in the same directory where the input files, in a folder named 'combined_output/'.
+There are three separate steps for the processing:
+    1. Extract all the significant hits (below specified p-value threshold) from the GWAS output files.
+    2. Combine all the significant hits into a single file.
+    3. Take a GWAS output file and replace the p-values with the p-values from the combined file in the relevant rows.
+"""
 
 args = sys.argv[1:]
 if len(args) != 4:
     print("Usage: combine_manhattans.py <GWAS data directory> <project_prefix> <steps to run> <p-value threshold>")
     sys.exit(1)
 
-files_filepath = args[0]  # The file containing the GWAS output files to combine.
-project_id = args[1]  # For example "BV" or "CB"
+files_filepath = args[0]  # The directory containing the GWAS output files to combine.
+project_id = args[1]  # Prefix used for file names. For example "BV" or "CB"
+
 steps_to_run = args[2]  # The steps to run. For example "1" or "123"
+
+# Make sure 'steps_to_run' is a string and contains only numbers from 1 to 3
+if not steps_to_run.isdigit() or not (1 <= int(steps_to_run[0]) <= 3):  # Not the best handling, but will do for now.
+    print("'steps_to_run' must be a string and contain only numbers from 1 to 3")
+    sys.exit(1)
+
 p_value_threshold = args[3]  # Exponent of the p-value threshold. For example "5" for 1e-5.
+
+# Make sure the inputted p-value threshold is a valid number.
+try:
+    int(p_value_threshold)
+except ValueError:
+    print("The p-value threshold must be an integer.")
+    sys.exit(1)
+
 p_value_threshold = 10**-(int(p_value_threshold))
+
 
 if files_filepath.endswith("/"):
     files_filepath = files_filepath[:-1]
@@ -29,16 +51,11 @@ if not os.path.exists(output_filepath):
 if not os.path.exists(output_filepath + '/all_significant_variant_tables'):
     os.mkdir(output_filepath + '/all_significant_variant_tables')
 
-# Make sure 'steps_to_run' is a string and contains only numbers from 1 to 3
-if not steps_to_run.isdigit() or not (1 <= int(steps_to_run[0]) <= 3):  # Not the best handling, but will do for now.
-    print("'steps_to_run' must be a string and contain only numbers from 1 to 3")
-    sys.exit(1)
-
 ########################################################################################################################
 # STEP 1
 ########################################################################################################################
 # This step fills the folder 'all_significant_variant_tables' with .tsv tables.
-# Out of each GWAS output file, it only takes the entries that are suggestively significant.
+# Out of each GWAS output file, it only takes the entries that have a p-value above the inputted threshold.
 # For each phenotype, each chromosome is outputted into a separate file.
 
 # Inputs: GWAS output files
