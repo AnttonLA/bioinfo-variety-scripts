@@ -14,8 +14,9 @@ There are three separate steps for the processing:
 """
 
 args = sys.argv[1:]
-if len(args) != 4:
-    print("Usage: combine_manhattans.py <GWAS data directory> <project_prefix> <steps to run> <p-value threshold>")
+if len(args) != 5:
+    print("Usage: combine_manhattans.py <GWAS data directory> <project_prefix> <steps to run> <p-value threshold>"
+          " <drop_repeats boolean>")
     sys.exit(1)
 
 files_filepath = args[0]  # The directory containing the GWAS output files to combine.
@@ -37,8 +38,16 @@ except ValueError:
     print("The p-value threshold must be an integer.")
     sys.exit(1)
 
-p_value_threshold = 10**-(int(p_value_threshold))
+p_value_threshold = 10**-(int(p_value_threshold))  # Actual p-value threshold, not the exponent.
 
+# Whether to drop repeated hits. For example "True" or "False". Default is "True".
+if args[4].lower() in ["true", "t", "yes", "y"]:
+    drop_repeats = True
+elif args[4].lower() in ["false", "f", "no", "n"]:
+    drop_repeats = False
+else:
+    print("The drop_repeats argument must be either 'True' or 'False'.")
+    sys.exit(1)
 
 if files_filepath.endswith("/"):
     files_filepath = files_filepath[:-1]
@@ -61,6 +70,8 @@ if not os.path.exists(output_filepath + '/all_significant_variant_tables'):
 # Inputs: GWAS output files
 
 # Outputs: .tsv files in the folder 'all_significant_variant_tables'
+week_year_str = "w11_2022"
+
 if '1' in steps_to_run:
     print('Commencing STEP 1: filling all_significant_variant_tables folder...')
     for i, gwas_file in enumerate(os.listdir(files_filepath)):
@@ -69,10 +80,11 @@ if '1' in steps_to_run:
             f = pd.read_csv(files_filepath + '/' + gwas_file, sep="\t", chunksize=100000)
             list_of_downsampled_chunks = []
             for chunk in f:
-                list_of_downsampled_chunks.append(chunk[chunk['pval'] < p_value_threshold].copy())  # Note the p-value threshold
-            phenotype = ''.join(gwas_file.split('.')[0].split('_')[3:])
+                list_of_downsampled_chunks.append(chunk[chunk['pval'] < p_value_threshold].copy())
+                # Note the p-value threshold
+            phenotype = ''.join(gwas_file.rstrip('.txt').split('_')[3:])
             concat_df = pd.concat(list_of_downsampled_chunks)
-            concat_df = concat_df.assign(Phenotype=phenotype)
+            concat_df = concat_df.assign(phenotype=phenotype)
             # Add shortened rsID
             concat_df.insert(1, 'rsid_short',
                              [rsid.split(':')[0] if rsid.startswith('rs') else rsid for rsid in concat_df.rsid.to_list()])
@@ -84,7 +96,7 @@ if '1' in steps_to_run:
                 n = concat_df.iloc[0, 9]  # get N from dataframe
                 for chromosome in chrs_with_hits:
                     concat_df[concat_df.chromosome == chromosome].to_csv(output_filepath
-                                                                         + f'/all_significant_variant_tables/{project_id}_GWAS_chr{str(chromosome)}_{phenotype}_n{n}_w11_2022_hit_table.tsv',
+                                                                         + f'/all_significant_variant_tables/{project_id}_GWAS_chr{str(chromosome)}_{phenotype}_n{n}_{week_year_str}_hit_table.tsv',
                                                                          sep='\t', index=False)
 
 ########################################################################################################################
@@ -95,7 +107,7 @@ if '1' in steps_to_run:
 
 # Inputs: .tsv files in the folder 'all_significant_variant_tables/'
 
-# Outputs: 'combined_hits_only_txt' file.
+# Outputs: "hit_table_file" file (name depends on the 'drop_repeats' boolean)
 
 if '2' in steps_to_run:
     print('Commencing STEP 2: Combining all tsv files...')
@@ -110,6 +122,7 @@ if '2' in steps_to_run:
 
     path_to_tsv_files_folder = output_filepath + '/all_significant_variant_tables'
 
+    # Iterate through the files, concat contents into a df
     for i, hit_table_file in enumerate(os.listdir(path_to_tsv_files_folder)):
         if hit_table_file.endswith('.tsv'):
 
@@ -117,37 +130,54 @@ if '2' in steps_to_run:
             table_df = pd.read_csv(path_to_tsv_files_folder + '/' + hit_table_file, sep="\t", index_col=0)
             full_hits_table_df = pd.concat([full_hits_table_df, table_df], sort=False)
 
-            if i % 1000 == 0:
-                print("Table ", i / len(os.listdir(path_to_tsv_files_folder)))
+            if i % 100 == 0:
+                print(f"Table  {i} / {len(os.listdir(path_to_tsv_files_folder))}")
 
-            # if i >300:
+            # if i >300:  # for testing
             #   break
 
-    # for each row with the same rsid, keep the one with the lowest p-value
-    full_hits_table_df = full_hits_table_df.sort_values(by=['pval']).groupby('rsid').head(1)
-    # TODO: this is very hacky and fails to gather all the different phenotypes where the variant is significant.
-    # TODO: as a result, every variant can only have one associated phenotype, which isn't necessarily true.
-    # sort by column chromosome
-    full_hits_table_df = full_hits_table_df.sort_values(by=['chromosome', 'position'])
+    if drop_repeats:  # each variant only once
+        print("Dropping repeated rsid-s. Keeping only most significant association per variant")
+        # for each row with the same rsid, keep the one with the lowest p-value
+        full_hits_table_df = full_hits_table_df.sort_values(by=['pval']).groupby('rsid').head(1)
+        # Note that since we only take one row, we fail to gather all the different phenotypes where the variant is
+        # significant. This is not necessarily true, since a variant can have associations with several traits.
+        # In this version of the final table, each row belongs to a distinct rsID, showing the stats of the phenotype
+        # that gave the lowest p-value for that SNP.
 
-    # In the final table, each row belongs to a distinct rsID, showing the stats of the phenotype that gave the lowest
-    # p-value for that SNP.
-    print("Rows of the final combined_hits_only.txt file: ", len(full_hits_table_df.index.to_list()))
-    full_hits_table_df.to_csv(output_filepath + '/combined_hits_only.txt', sep="\t")
+        full_hits_table_df = full_hits_table_df.sort_values(by=['chromosome', 'position'])  # sort by column chromosome
+
+        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{p_value_threshold}_{week_year_str}'\
+                              '_one_pheno_only_per_variant.txt '
+        print("Rows of the final table containing all our hits (counting each variant only once): ",
+              len(full_hits_table_df.index.to_list()))
+
+    else:  # each variant can appear multiple times if it has multiple associations with different phenotypes
+        print("Keeping all association for each variant")
+        full_hits_table_df = full_hits_table_df.sort_values(by=['chromosome', 'position'])  # sort by column chromosome
+        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{p_value_threshold}_{week_year_str}'\
+                              '_all_phenotypes_per_variant.txt '
+        print("Rows of the final table containing all our hits (same variant can be counted several times): ",
+              len(full_hits_table_df.index.to_list()))
+
+    # Save the final table to file
+    full_hits_table_df.to_csv(output_filepath + '/' + hit_table_file_name, sep="\t")
+
 
 ########################################################################################################################
 # STEP 3
 ########################################################################################################################
-# This step takes a GWAS output file and replaces some rows with the rows from the 'combined_hits_only.txt' file
+# This step takes a GWAS output file and replaces some rows with the rows from the file named in the
+# 'hit_table_file_name' variable
 
-# Inputs: template GWAS output file, 'combined_hits_only.txt' file
+# Inputs: template GWAS output file, file named in variant 'hit_table_file_name'
 
-# Outputs: GWAS output file with the rows from the 'combined_hits_only.txt' file
+# Outputs: GWAS output file with the rows from the "hit_table_file_name" file replaced into it
 
 if '3' in steps_to_run:
     print('Commencing STEP 3: Replacing template GWAS output file with lowest p-values...')
 
-    hits_file = output_filepath + '/combined_hits_only.txt'
+    hits_file = output_filepath + '/' + hit_table_file_name
     template_manhattan_file = output_filepath + '/template_manhattan.txt'
     output_manhattan_file = output_filepath + '/output_manhattan.txt'
 
