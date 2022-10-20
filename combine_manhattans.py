@@ -123,6 +123,7 @@ if '2' in steps_to_run:
     path_to_tsv_files_folder = output_filepath + '/all_significant_variant_tables'
 
     # Iterate through the files, concat contents into a df
+    num_all_tables = len(os.listdir(path_to_tsv_files_folder))
     for i, hit_table_file in enumerate(os.listdir(path_to_tsv_files_folder)):
         if hit_table_file.endswith('.tsv'):
 
@@ -130,8 +131,10 @@ if '2' in steps_to_run:
             table_df = pd.read_csv(path_to_tsv_files_folder + '/' + hit_table_file, sep="\t", index_col=0)
             full_hits_table_df = pd.concat([full_hits_table_df, table_df], sort=False)
 
-            if i % 100 == 0:
-                print(f"Table  {i} / {len(os.listdir(path_to_tsv_files_folder))}")
+            if num_all_tables > 100 & i % 100 == 0:  # Print progress. Every 100 files >= 100 files, otherwise every 10)
+                print(f"Table  {i} / {num_all_tables}")
+            elif num_all_tables > 10 & i % 10 == 0:
+                print(f"Table  {i} / {num_all_tables}")
 
             # if i >300:  # for testing
             #   break
@@ -190,8 +193,8 @@ if '3' in steps_to_run:
             else:
                 # Throw error if os.listdir(files_filepath)[-1] is not a .txt file
                 raise ValueError('The last file in the directory is not a .txt file.')
-                # TODO: looking for the last file in the directory is completely arbitrary (and hacky). A better way
-                # TODO: must exist to find a GWAS file.
+                # TODO: looking for the last file in the directory is completely arbitrary (and hacky). It relies on the
+                #  file structure being kept. A better way must exist to find a GWAS file.
 
     # Dictionary used to assign lineage group to each phenotype
     lineage_dict = {}

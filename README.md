@@ -20,3 +20,10 @@ A collection of useful bioinformatics scripts I've written over time.
 
 NOTE: The script has a variable where the path to your GEN files should go. It should probably be an imput :/
 
+## combine_manhattans.py
+
+**Description:** Take several summary statistics files and combine them into a single file suitable for a manhattan plot.
+
+**Language:** Python
+
+**Usage:** ``` combine_manhattans.py <GWAS data directory> <project_prefix> <steps to run> <p-value threshold> <drop_repeats boolean> ```
