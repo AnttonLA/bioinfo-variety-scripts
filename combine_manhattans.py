@@ -2,7 +2,7 @@ import os
 import sys
 
 import pandas as pd
-import numpy as np
+import argparse
 
 """
 This script combines all the GWAS output files in a directory into a single GWAS output file. The output will be
@@ -13,41 +13,52 @@ There are three separate steps for the processing:
     3. Take a GWAS output file and replace the p-values with the p-values from the combined file in the relevant rows.
 """
 
-args = sys.argv[1:]
-if len(args) != 5:
-    print("Usage: combine_manhattans.py <GWAS data directory> <project_prefix> <steps to run> <p-value threshold>"
-          " <drop_repeats boolean>")
-    sys.exit(1)
+parser = argparse.ArgumentParser(description="Combine GWAS sumstats into one file for a single Manhattan plot.")
+parser.add_argument('GWAS_dir', metavar="path",
+                    help="Directory where the summary statistics files we want to merge are located", type=str)
+parser.add_argument('--prefix', help="Prefix for the output files. Used to differentiate between projects."
+                    "For example 'BV' or 'CB'", type=str, default="")
+parser.add_argument("-s", "--steps", nargs="+", type=str, help="Numbers of the steps you want to run. Space delimited.")
+parser.add_argument("-p", "--pval", type=int,  # TODO : make this into a float instead
+                    help="Exponent of the p-value threshold to extract variants from GWAS output files")
+parser.add_argument("-r", "--include_repeats", type=bool, default=True,
+                    help="whether to include all the associations for a variant, or just the most significant one")
+parser.add_argument("-a", "--alias_file", type=str, default=None,
+                    help="Path to the file with aliases for the phenotypes (for example, to simplify to lineages)."
+                         "If not specified, the script will add a column identical to the 'phenotype' column to the"
+                         "final table.")
+# Immune GWAS alias file: '/home/antton/Projects/Immune_GWAS/data/processed/phenotype_lineage_curated.csv'
+# TODO : make sure this is correct
 
-files_filepath = args[0]  # The directory containing the GWAS output files to combine.
-project_id = args[1]  # Prefix used for file names. For example "BV" or "CB"
+args = parser.parse_args()
 
-steps_to_run = args[2]  # The steps to run. For example "1" or "123"
+
+files_filepath = args.GWAS_dir  # The directory containing the GWAS output files to combine.
+project_id = args.prefix  # Prefix used for file names. For example "BV" or "CB"
+steps_to_run = args.steps  # The steps to run. For example "1" or "123"
+
+print("\nGiven filepath: ", files_filepath)
+print("Project prefix: ", project_id)
+print("Steps requested: ", steps_to_run)
 
 # Make sure 'steps_to_run' is a string and contains only numbers from 1 to 3
-if not steps_to_run.isdigit() or not (1 <= int(steps_to_run[0]) <= 3):  # Not the best handling, but will do for now.
-    print("'steps_to_run' must be a string and contain only numbers from 1 to 3")
-    sys.exit(1)
+for step in steps_to_run:
+    if step not in ['1', '2', '3']:
+        print("ERROR: Step numbers must be 1, 2 or 3. You entered: ", steps_to_run)
+        sys.exit(1)
 
-p_value_threshold = args[3]  # Exponent of the p-value threshold. For example "5" for 1e-5.
+p_value_threshold = args.pval  # Exponent of the p-value threshold. For example "5" for 1e-5.
 
-# Make sure the inputted p-value threshold is a valid number.
+# Make sure the inputted p-value threshold is a valid number.  # TODO : make this into a float instead
 try:
-    int(p_value_threshold)
+    int(p_value_threshold)  # TODO: This typecheck is no longer needed since argparse takes care of it
 except ValueError:
     print("The p-value threshold must be an integer.")
     sys.exit(1)
 
 p_value_threshold = 10**-(int(p_value_threshold))  # Actual p-value threshold, not the exponent.
 
-# Whether to drop repeated hits. For example "True" or "False". Default is "True".
-if args[4].lower() in ["true", "t", "yes", "y"]:
-    drop_repeats = True
-elif args[4].lower() in ["false", "f", "no", "n"]:
-    drop_repeats = False
-else:
-    print("The drop_repeats argument must be either 'True' or 'False'.")
-    sys.exit(1)
+print("P-value threshold: ", p_value_threshold)
 
 if files_filepath.endswith("/"):
     files_filepath = files_filepath[:-1]
@@ -73,7 +84,7 @@ if not os.path.exists(output_filepath + '/all_significant_variant_tables'):
 week_year_str = "w11_2022"
 
 if '1' in steps_to_run:
-    print('Commencing STEP 1: filling all_significant_variant_tables folder...')
+    print('\nCommencing STEP 1: filling all_significant_variant_tables folder...')
     for i, gwas_file in enumerate(os.listdir(files_filepath)):
         if gwas_file.endswith('.txt'):
             print(f"File {i + 1} of {len(os.listdir(files_filepath))}")
@@ -110,7 +121,7 @@ if '1' in steps_to_run:
 # Outputs: "hit_table_file" file (name depends on the 'drop_repeats' boolean)
 
 if '2' in steps_to_run:
-    print('Commencing STEP 2: Combining all tsv files...')
+    print('\nCommencing STEP 2: Combining all tsv files...')
 
     full_hits_table_df = pd.DataFrame()
 
@@ -139,7 +150,7 @@ if '2' in steps_to_run:
             # if i >300:  # for testing
             #   break
 
-    if drop_repeats:  # each variant only once
+    if args.include_repeats:  # each variant only once
         print("Dropping repeated rsid-s. Keeping only most significant association per variant")
         # for each row with the same rsid, keep the one with the lowest p-value
         full_hits_table_df = full_hits_table_df.sort_values(by=['pval']).groupby('rsid').head(1)
@@ -178,15 +189,16 @@ if '2' in steps_to_run:
 # Outputs: GWAS output file with the rows from the "hit_table_file_name" file replaced into it
 
 if '3' in steps_to_run:
-    print('Commencing STEP 3: Replacing template GWAS output file with lowest p-values...')
+    print('\nCommencing STEP 3: Replacing template GWAS output file with lowest p-values...')
 
-    hits_file = output_filepath + '/' + hit_table_file_name
+    hits_file = output_filepath + '/' + hit_table_file_name  # TODO: If I use this variable then STEP 2 must be run :(
     template_manhattan_file = output_filepath + '/template_manhattan.txt'
     output_manhattan_file = output_filepath + '/output_manhattan.txt'
 
     # Check if no template GWAS file exist
     if not os.path.isfile(template_manhattan_file):
         # Create template GWAS file by copying the last file in os.listdir(files_filepath) to template_manhattan_file
+        print("No template GWAS file found. Creating one...")
         with open(template_manhattan_file, 'w') as f:
             if os.listdir(files_filepath)[-1].endswith('.txt'):
                 f.write(open(files_filepath + '/' + os.listdir(files_filepath)[-1]).read())
@@ -195,19 +207,31 @@ if '3' in steps_to_run:
                 raise ValueError('The last file in the directory is not a .txt file.')
                 # TODO: looking for the last file in the directory is completely arbitrary (and hacky). It relies on the
                 #  file structure being kept. A better way must exist to find a GWAS file.
+        print("File created.  Replacing rows...")
 
-    # Dictionary used to assign lineage group to each phenotype
-    lineage_dict = {}
-    with open('/home/antton/Projects/Immune_GWAS/data/processed/phenotype_lineage_curated.csv', 'r') as in_file:
-        for line in in_file:
-            split_line = line.split(',')
-            lineage_dict[split_line[1].replace(' ', '')] = split_line[2].rstrip()
+    else:
+        print("Template GWAS file found. Replacing rows...")
 
-    hits_df = pd.read_csv(hits_file, sep='\t')
+    hits_df = pd.read_csv(hits_file, sep='\t', index_col=None)
     hits_df.drop(columns=['rsid_short'], inplace=True)  # Make it identical to the GWAS_df
-    hits_df.rename(columns={'Phenotype': 'phenotype'}, inplace=True)  # Make column name lowercase
-    # add column 'lineage' to the hits_df dataframe using the lineage_dict
-    hits_df['lineage'] = hits_df['phenotype'].map(lineage_dict)
+
+    # If there is an alias file, read it and add the alias column to the hits_df
+    if args.alias_file:
+        if not os.path.isfile(args.alias_file):
+            raise ValueError('The provided alias file does not exist.')
+
+        # Dictionary used to assign alias to each phenotype
+        alias_dict = {}
+        with open(args.alias_file, 'r') as in_file:
+            for line in in_file:
+                split_line = line.split(',')
+                alias_dict[split_line[1].replace(' ', '')] = split_line[2].rstrip()
+
+        # add column 'alias' to the hits_df dataframe using the alias_dict
+        hits_df['alias'] = hits_df['phenotype'].map(alias_dict)
+
+    else:
+        hits_df['alias'] = hits_df['phenotype']
 
     # Read in the template GWAS file and replace the relevant variant entries with the contents of the hits_df dataframe
     f = pd.read_csv(template_manhattan_file, sep="\t", chunksize=100000)
@@ -219,11 +243,11 @@ if '3' in steps_to_run:
     # Replace the relevant entries in the templateGWAS_df dataframe with the contents of the hits_df dataframe
     out_df = pd.merge(templateGWAS_df, hits_df, how='outer',
                       on=["rsid", "chromosome", "position", "A1", "A2", "pval", "beta", "tstat", "n"])
-
+    # TODO: This merge is not working properly. It is not replacing the rows in the templateGWAS_df dataframe
     # Write the output_manhattan_file
     out_df.to_csv(output_manhattan_file, sep='\t', index=False)
 
-    # You can check the rows where the phenotype and lineage are not NaN with the bash command:
+    # You can check the rows where the phenotype and alias are not NaN with the bash command:
     # awk '$11' output_manhattan.txt
 
     print("STEP 3 done! Output file: ", output_manhattan_file)
