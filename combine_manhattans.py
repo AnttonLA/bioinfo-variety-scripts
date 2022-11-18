@@ -1,6 +1,8 @@
 import os
 import sys
 
+import numpy as np
+import math as m
 import pandas as pd
 import argparse
 
@@ -16,16 +18,17 @@ There are three separate steps for the processing:
 parser = argparse.ArgumentParser(description="Combine GWAS sumstats into one file for a single Manhattan plot.")
 parser.add_argument('GWAS_dir', metavar="path",
                     help="Directory where the summary statistics files we want to merge are located", type=str)
-parser.add_argument('--prefix', help="Prefix for the output files. Used to differentiate between projects."
+parser.add_argument('--prefix', help="Prefix for the output files. Used to differentiate between projects. "
                     "For example 'BV' or 'CB'", type=str, default="")
 parser.add_argument("-s", "--steps", nargs="+", type=str, help="Numbers of the steps you want to run. Space delimited.")
 parser.add_argument("-p", "--pval", type=int,  # TODO : make this into a float instead
-                    help="Exponent of the p-value threshold to extract variants from GWAS output files")
-parser.add_argument("-r", "--include_repeats", type=bool, default=True,
-                    help="whether to include all the associations for a variant, or just the most significant one")
+                    help="Exponent of the p-value threshold to extract variants from GWAS output files.")
+parser.add_argument("-r", "--include_repeats", action="store_true",
+                    help="by default, only the most significant phenotype will be included in the final file. If this "
+                         "flag is present, all the significant associations for each variant will be included instead.")
 parser.add_argument("-a", "--alias_file", type=str, default=None,
-                    help="Path to the file with aliases for the phenotypes (for example, to simplify to lineages)."
-                         "If not specified, the script will add a column identical to the 'phenotype' column to the"
+                    help="Path to the file with aliases for the phenotypes (for example, to simplify to lineages). "
+                         "If not used, the script will add a column identical to the 'phenotype' column to the "
                          "final table.")
 # Immune GWAS alias file: '/home/antton/Projects/Immune_GWAS/data/processed/phenotype_lineage_curated.csv'
 # TODO : make sure this is correct
@@ -81,7 +84,27 @@ if not os.path.exists(output_filepath + '/all_significant_variant_tables'):
 # Inputs: GWAS output files
 
 # Outputs: .tsv files in the folder 'all_significant_variant_tables'
-week_year_str = "w11_2022"
+week_year_str = "w11_2022"  # TODO : make this an input argument
+
+
+# Functions used to deal with incorrect data types in the p-value column:
+def is_number(s):
+    """Check if input is a number/conversion to float is possible"""
+    try:
+        float(s)
+    except ValueError:
+        return False
+    return True
+
+
+def check_and_convert_float(x):
+    """If conversion to float is possible, do it. Otherwise, return NaN.
+    Calls custom function 'is_number()'."""
+    if is_number(x):
+        return float(x)
+    else:
+        return np.nan
+
 
 if '1' in steps_to_run:
     print('\nCommencing STEP 1: filling all_significant_variant_tables folder...')
@@ -90,12 +113,18 @@ if '1' in steps_to_run:
             print(f"File {i + 1} of {len(os.listdir(files_filepath))}")
             f = pd.read_csv(files_filepath + '/' + gwas_file, sep="\t", chunksize=100000)
             list_of_downsampled_chunks = []
+            print(f"Reading file {gwas_file}")
             for chunk in f:
+                # "chunk['pval'].apply(lambda x: check_and_convert_float(x))" converts pvals to float, non-numbers to NaN
+                chunk['pval'] = chunk['pval'].apply(lambda x: check_and_convert_float(x))
                 list_of_downsampled_chunks.append(chunk[chunk['pval'] < p_value_threshold].copy())
+
+
                 # Note the p-value threshold
             phenotype = ''.join(gwas_file.rstrip('.txt').split('_')[3:])
             concat_df = pd.concat(list_of_downsampled_chunks)
             concat_df = concat_df.assign(phenotype=phenotype)
+
             # Add shortened rsID
             concat_df.insert(1, 'rsid_short',
                              [rsid.split(':')[0] if rsid.startswith('rs') else rsid for rsid in concat_df.rsid.to_list()])
@@ -118,7 +147,7 @@ if '1' in steps_to_run:
 
 # Inputs: .tsv files in the folder 'all_significant_variant_tables/'
 
-# Outputs: "hit_table_file" file (name depends on the 'drop_repeats' boolean)
+# Outputs: "hit_table_file" file (name depends on the 'include_repeats' boolean)
 
 if '2' in steps_to_run:
     print('\nCommencing STEP 2: Combining all tsv files...')
@@ -136,21 +165,22 @@ if '2' in steps_to_run:
     # Iterate through the files, concat contents into a df
     num_all_tables = len(os.listdir(path_to_tsv_files_folder))
     for i, hit_table_file in enumerate(os.listdir(path_to_tsv_files_folder)):
-        if hit_table_file.endswith('.tsv'):
+        if hit_table_file.endswith('.tsv') or hit_table_file.endswith('.txt'):
 
             # Table made from current file
-            table_df = pd.read_csv(path_to_tsv_files_folder + '/' + hit_table_file, sep="\t", index_col=0)
+            table_df = pd.read_csv(path_to_tsv_files_folder + '/' + hit_table_file, sep="\t", index_col=0,
+                                   dtype={'pval': float, 'beta': float, 'phenotype': str})
             full_hits_table_df = pd.concat([full_hits_table_df, table_df], sort=False)
 
-            if num_all_tables > 100 & i % 100 == 0:  # Print progress. Every 100 files >= 100 files, otherwise every 10)
+            if (num_all_tables > 100) & (i % 100 == 0):  # Print every 100 if # of files > 100 files, every 10 if < 100
                 print(f"Table  {i} / {num_all_tables}")
-            elif num_all_tables > 10 & i % 10 == 0:
+            elif (num_all_tables < 100) & (i % 10 == 0):
                 print(f"Table  {i} / {num_all_tables}")
 
             # if i >300:  # for testing
             #   break
 
-    if args.include_repeats:  # each variant only once
+    if not args.include_repeats:  # each variant only once
         print("Dropping repeated rsid-s. Keeping only most significant association per variant")
         # for each row with the same rsid, keep the one with the lowest p-value
         full_hits_table_df = full_hits_table_df.sort_values(by=['pval']).groupby('rsid').head(1)
@@ -161,16 +191,16 @@ if '2' in steps_to_run:
 
         full_hits_table_df = full_hits_table_df.sort_values(by=['chromosome', 'position'])  # sort by column chromosome
 
-        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{p_value_threshold}_{week_year_str}'\
-                              '_one_pheno_only_per_variant.txt '
+        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{int(m.log10(p_value_threshold))}_{week_year_str}'\
+                              '_one_pheno_only_per_variant.txt'
         print("Rows of the final table containing all our hits (counting each variant only once): ",
               len(full_hits_table_df.index.to_list()))
 
     else:  # each variant can appear multiple times if it has multiple associations with different phenotypes
         print("Keeping all association for each variant")
         full_hits_table_df = full_hits_table_df.sort_values(by=['chromosome', 'position'])  # sort by column chromosome
-        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{p_value_threshold}_{week_year_str}'\
-                              '_all_phenotypes_per_variant.txt '
+        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{int(m.log10(p_value_threshold))}_{week_year_str}'\
+                              '_all_phenotypes_per_variant.txt'
         print("Rows of the final table containing all our hits (same variant can be counted several times): ",
               len(full_hits_table_df.index.to_list()))
 
@@ -191,7 +221,16 @@ if '2' in steps_to_run:
 if '3' in steps_to_run:
     print('\nCommencing STEP 3: Replacing template GWAS output file with lowest p-values...')
 
-    hits_file = output_filepath + '/' + hit_table_file_name  # TODO: If I use this variable then STEP 2 must be run :(
+    if '2' not in steps_to_run:
+        hit_table_file_name = f'{project_id}_GWAS_hits_only_10E{int(m.log10(p_value_threshold))}_{week_year_str}'\
+                              '_all_phenotypes_per_variant.txt'
+                               #'_one_pheno_only_per_variant.txt'  # TODO: No guarantee that this file exists
+        if not os.path.isfile(output_filepath + '/' + hit_table_file_name):
+            print(f'ERROR: File {hit_table_file_name} does not exist.')
+            print('Please run step 2 & 3 together so that the file is created or alter the script for the names to match.')
+            sys.exit()
+
+    hits_file = output_filepath + '/' + hit_table_file_name
     template_manhattan_file = output_filepath + '/template_manhattan.txt'
     output_manhattan_file = output_filepath + '/output_manhattan.txt'
 
@@ -212,8 +251,10 @@ if '3' in steps_to_run:
     else:
         print("Template GWAS file found. Replacing rows...")
 
-    hits_df = pd.read_csv(hits_file, sep='\t', index_col=None)
-    hits_df.drop(columns=['rsid_short'], inplace=True)  # Make it identical to the GWAS_df
+    hits_df = pd.read_csv(hits_file, sep='\t', index_col=None,
+                          dtype={'position': int, 'pval': float, 'beta': float, 'phenotype': str})
+    if 'rsid_short' in hits_df.columns:
+        hits_df.drop(columns=['rsid_short'], inplace=True)  # Make it identical to the GWAS_df
 
     # If there is an alias file, read it and add the alias column to the hits_df
     if args.alias_file:
@@ -225,16 +266,24 @@ if '3' in steps_to_run:
         with open(args.alias_file, 'r') as in_file:
             for line in in_file:
                 split_line = line.split(',')
-                alias_dict[split_line[1].replace(' ', '')] = split_line[2].rstrip()
+                if len(split_line) == 2:
+                    alias_dict[split_line[0].replace(' ', '')] = split_line[1].rstrip()
+                elif len(split_line) < 2:
+                    alias_dict[split_line[0].replace(' ', '')] = "Other"
+                else:
+                    raise ValueError('The alias file is not formatted correctly. Each line must have 2 entries max.')
 
         # add column 'alias' to the hits_df dataframe using the alias_dict
         hits_df['alias'] = hits_df['phenotype'].map(alias_dict)
 
-    else:
+    else:  # If there is no alias file, add a column with the phenotype name again
         hits_df['alias'] = hits_df['phenotype']
 
     # Read in the template GWAS file and replace the relevant variant entries with the contents of the hits_df dataframe
-    f = pd.read_csv(template_manhattan_file, sep="\t", chunksize=100000)
+    f = pd.read_csv(template_manhattan_file, sep="\t", chunksize=100000,
+                    converters={   # Converters make these columns robust to missing values
+                        "pval": lambda x: pd.to_numeric(x, errors="coerce"),
+                        "tstat": lambda x: pd.to_numeric(x, errors="coerce")})
     list_of_downsampled_chunks = []
     for chunk in f:
         list_of_downsampled_chunks.append(chunk.copy())
@@ -242,8 +291,14 @@ if '3' in steps_to_run:
 
     # Replace the relevant entries in the templateGWAS_df dataframe with the contents of the hits_df dataframe
     out_df = pd.merge(templateGWAS_df, hits_df, how='outer',
-                      on=["rsid", "chromosome", "position", "A1", "A2", "pval", "beta", "tstat", "n"])
+                      #on=["rsid", "chromosome", "position", "A1", "A2", "pval", "beta", "tstat", "n"])
+                      on=['ID', 'beta', 'chi2', 'pval', 'Marker', 'chromosome', 'position', 'OA', 'EA', 'EAF', 'Info', 'phenotype'])
     # TODO: This merge is not working properly. It is not replacing the rows in the templateGWAS_df dataframe
+
+    if out_df.chromosome.iloc[1].startswith('chr'):
+        out_df.chromosome = out_df.chromosome.str.replace('chr', '')
+    out_df.sort_values(by=['chromosome', 'position'], inplace=True)  # sort by column chromosome
+
     # Write the output_manhattan_file
     out_df.to_csv(output_manhattan_file, sep='\t', index=False)
 
