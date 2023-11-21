@@ -2,17 +2,19 @@ import os
 import sys
 import argparse
 import pandas as pd
+import numpy as np
 import dash
-from dash import dcc, html
+from dash import dcc, html, dash_table
 import plotly.graph_objs as go
 import webbrowser
 
 """
-This script creates an interactive plotly scatter plot from a BED-like tab-separated file containing information about
-the MAFs, beta values and position of SNPs. It can also take variant name and p-value information.
+This script creates an interactive plotly scatter plot from a BED-like tab-separated text file containing information 
+about the MAFs, beta values and position of SNPs. It can also take the p-value and assigned gene for each variant.
+
 The script visualizes the variants in a scatter plot, where the x-axis represents the MAFs and the y-axis represents the
 beta values. The user can hover over any of the points to see more information about the variant. Clicking on a point
-will open the dbSNP page corresponding to the variant. 
+will open the USCS browser (https://genome-euro.ucsc.edu/cgi-bin/hgGateway) at the position of the variant. 
 """
 
 parser = argparse.ArgumentParser()
@@ -97,12 +99,26 @@ else:
     df['gene'] = None
 
 
+def check_maf_percentage_or_fraction(in_df):
+    """
+    Crudely check if the MAF column is in percentages or fractions (e.g. 0.5 vs 50).
+    If it is in percentages, convert it to fractions.
+    This is a crude check that uses the ranges of the values to try to figure out what data we are dealing with.
+        If the values range between 0 and 1, it might be fractions.
+        If the values range between 0 and 100, it might be percentages.
+    """
+    # TODO
+
+
 # For those entries where MAF > 0.5, flip it, and make change the sign of the beta
 # TODO: be mindful that data can come both in percentages and fractions!!! (e.g. 0.5 vs 50). This should be harmonized!
-mask = df[args.maf_column] > 50
+mask = df[args.maf_column] > 50  # This only affects variants with MAF > 0.5
 df.loc[mask, 'beta_to_plot'] = -df.loc[mask, 'beta_to_plot']
 df.loc[mask, 'MAF_to_plot'] = 100 - df.loc[mask, 'MAF_to_plot']
 
+
+# Keep only the variants with MAF < 2
+# df = df[df['MAF_to_plot'] < 2]
 
 def open_dbsnp_page(chromosome, position):
     """
@@ -122,10 +138,12 @@ def open_ucsc_page(chromosome, position):
     zoom_out = 10_000
     start_zoom = max(0, int(position) - zoom_out)
     end_zoom = int(position) + zoom_out
-#    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}"
+    #    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}"
     url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{start_zoom}-{end_zoom}&highlight=chr{chromosome}%3A{position}-{position}"
     webbrowser.open_new_tab(url)
 
+
+# ... (your existing imports)
 
 # Create the Dash app
 app = dash.Dash(__name__)
@@ -141,30 +159,47 @@ scatter = go.Scatter(
         opacity=0.5,
     ),
     text=df['name'],
-    customdata=df['p_value'],
+    customdata=df[['p_value', 'gene']],
 )
 
+# Create the figure object
 fig = go.Figure(scatter)
-if args.p_value_column:
-    hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata}'
+
+# Define the layout hovertemplate based on the columns that were specified
+if args.p_value_column and args.gene_column:
+    hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata[0]}<br>gene: %{customdata[1]}'
+elif args.p_value_column:
+    hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata[0]}'
+elif args.gene_column:
+    hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>gene: %{customdata[1]}'
 else:
     hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}'
 fig.update_traces(hovertemplate=hovertemplate_string)
 
 
-# Define the callback function
+# Define callback to update scatter plot based on MAF threshold and handle click events
 @app.callback(
     dash.dependencies.Output('scatter', 'figure'),
-    [dash.dependencies.Input('scatter', 'clickData')],
+    [dash.dependencies.Input('maf-threshold-slider', 'value'),
+     dash.dependencies.Input('scatter', 'clickData')],
     [dash.dependencies.State('scatter', 'figure')]
 )
-def update_point(clickData, figure):
+def update_scatterplot_and_point(maf_threshold, clickData, figure):
     """
-    Update the point that was clicked on, making it red and small. Also open the dbSNP page for the variant.
-    :param clickData: Dictionary-like object that contains information about the point that was clicked on
-    :param figure: Figure object that is being updated
-    :return: Updated figure object
+    Update the scatter plot based on the MAF threshold and handle click events to open the desired url.
     """
+    # Update the DataFrame based on the MAF threshold
+    filtered_df = df[df['MAF_to_plot'] < maf_threshold]
+
+    # Make a copy of the original figure to preserve the styling
+    updated_scatter = figure.copy()
+
+    # Update the scatter plot with the filtered DataFrame
+    updated_scatter['data'][0]['x'] = filtered_df['MAF_to_plot']
+    updated_scatter['data'][0]['y'] = filtered_df['beta_to_plot']
+    updated_scatter['data'][0]['text'] = filtered_df['name']
+
+    # Handle click event
     if clickData:
         # Get the snp chr and pos and open the dbSNP page
         name = clickData['points'][0]['text']
@@ -176,15 +211,28 @@ def update_point(clickData, figure):
         position = snp.split(':')[1]
 
         # Open website
-        #open_dbsnp_page(chromosome, position)
+        # open_dbsnp_page(chromosome, position)
         open_ucsc_page(chromosome, position)
 
         point_index = clickData['points'][0]['pointIndex']
         colors = ['#ff0000' if i == point_index else 'blue' for i in range(len(df['MAF_to_plot']))]
         size = [10 if i == point_index else 15 for i in range(len(df['MAF_to_plot']))]
-        figure['data'][0]['marker']['color'] = colors
-        figure['data'][0]['marker']['size'] = size
-    return figure
+        updated_scatter['data'][0]['marker']['color'] = colors
+        updated_scatter['data'][0]['marker']['size'] = size
+
+    return updated_scatter
+
+
+# Define callback to update click state
+@app.callback(
+    dash.dependencies.Output('scatter', 'clickData'),
+    [dash.dependencies.Input('maf-threshold-slider', 'value')]
+)
+def reset_clickData(slider_value):
+    """
+    When the slider is moved, reset the clickData to None
+    """
+    return None
 
 
 # Set up the layout
@@ -194,7 +242,19 @@ fig.update_layout(
     yaxis=dict(title='β')
 )
 app.layout = html.Div([
-    dcc.Graph(id='scatter', figure=fig)
+    dcc.Graph(id='scatter', figure=fig),
+    dcc.Store(id='click-state', data={'clicked': False}),
+    html.Div([
+        dcc.Slider(
+            id='maf-threshold-slider',
+            min=0,
+            max=50,
+            step=1,
+            marks={i: str(i) for i in range(50)},
+            value=50,
+            tooltip={'placement': 'bottom', 'always_visible': True},
+        ),
+    ], style={'margin': '300px'}),
 ])
 
 if __name__ == '__main__':
