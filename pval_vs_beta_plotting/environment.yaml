@@ -1,0 +1,8 @@
+name: pval_vs_beta_plotting  # You can change the environment name as per your preference
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pandas
+  - dash
+  - plotly

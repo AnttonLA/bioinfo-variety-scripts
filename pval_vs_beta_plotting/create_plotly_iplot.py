@@ -39,6 +39,9 @@ parser.add_argument('-p', '--position_column',
 parser.add_argument('-pval', '--p_value_column',
                     help='The name of the column containing the p-values of the SNPs. Only used if specified.',
                     default=None)
+parser.add_argument('-gene', '--gene_column',
+                    help='The name of the column containing the gene names. Only used if specified.',
+                    default=None)
 args = parser.parse_args()
 
 # Check that the input file exists
@@ -59,6 +62,8 @@ def check_df_columns():
             raise ValueError('The input file does not contain the column "{}"'.format(argument))
     if args.p_value_column and args.p_value_column not in df.columns:
         raise ValueError('The input file does not contain the column "{}"'.format(args.p_value_column))
+    if args.gene_column and args.gene_column not in df.columns:
+        raise ValueError('The input file does not contain the column "{}"'.format(args.gene_column))
 
 
 check_df_columns()
@@ -74,7 +79,7 @@ if args.name_column not in df.columns:
                      'chromosome and position columns instead.\n'.format(args.name_column))
 else:
     df[args.name_column] = df[args.name_column].astype(str) + ' (' + df[args.chromosome_column].astype(str) + ':' + \
-                             df[args.position_column].astype(str) + ')'  # Add the chromosome and position to the name
+                           df[args.position_column].astype(str) + ')'  # Add the chromosome and position to the name
 
 # Add new columns to the dataframe that will be used for plotting. This way we also keep the original data untouched.
 df['MAF_to_plot'] = df[args.maf_column].copy()
@@ -86,10 +91,17 @@ if args.p_value_column:
     df['p_value'] = df[args.p_value_column].copy()
 else:
     df['p_value'] = None
+if args.gene_column:
+    df['gene'] = df[args.gene_column].copy()
+else:
+    df['gene'] = None
+
 
 # For those entries where MAF > 0.5, flip it, and make change the sign of the beta
-df.loc[df[args.maf_column] > 0.5, 'MAF_to_plot'] = 1 - df['MAF_to_plot']
-df.loc[df[args.maf_column] > 0.5, 'beta_to_plot'] = -df['beta_to_plot']
+# TODO: be mindful that data can come both in percentages and fractions!!! (e.g. 0.5 vs 50). This should be harmonized!
+mask = df[args.maf_column] > 50
+df.loc[mask, 'beta_to_plot'] = -df.loc[mask, 'beta_to_plot']
+df.loc[mask, 'MAF_to_plot'] = 100 - df.loc[mask, 'MAF_to_plot']
 
 
 def open_dbsnp_page(chromosome, position):
@@ -97,6 +109,18 @@ def open_dbsnp_page(chromosome, position):
     Open the dbSNP page for the given chromosome and position
     """
     url = f"https://www.ncbi.nlm.nih.gov/snp/?term={chromosome}%5BChromosome%5D+AND+{position}%5BCHRPOS%5D"
+    webbrowser.open_new_tab(url)
+
+
+def open_ucsc_page(chromosome, position):
+    """
+    Open the UCSC page for the given chromosome and position
+    :param chromosome:
+    :param position:
+    :return:
+    """
+#    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}"
+    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}&highlight=chr{chromosome}%3A{position}-{position}"
     webbrowser.open_new_tab(url)
 
 
@@ -147,7 +171,10 @@ def update_point(clickData, figure):
             snp = name
         chromosome = snp.split(':')[0]
         position = snp.split(':')[1]
-        open_dbsnp_page(chromosome, position)
+
+        # Open website
+        #open_dbsnp_page(chromosome, position)
+        open_ucsc_page(chromosome, position)
 
         point_index = clickData['points'][0]['pointIndex']
         colors = ['#ff0000' if i == point_index else 'blue' for i in range(len(df['MAF_to_plot']))]
