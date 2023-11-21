@@ -119,8 +119,11 @@ def open_ucsc_page(chromosome, position):
     :param position:
     :return:
     """
+    zoom_out = 10_000
+    start_zoom = max(0, int(position) - zoom_out)
+    end_zoom = int(position) + zoom_out
 #    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}"
-    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}&highlight=chr{chromosome}%3A{position}-{position}"
+    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{start_zoom}-{end_zoom}&highlight=chr{chromosome}%3A{position}-{position}"
     webbrowser.open_new_tab(url)
 
 

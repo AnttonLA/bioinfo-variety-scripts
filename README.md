@@ -2,6 +2,14 @@
 A collection of useful bioinformatics scripts I've written over time.
 
 
+## pval_vs_beta_plotting
+
+**Description:** Plot p-values vs. betas for a GWAS. Useful for identifying SNPs with low p-values and high betas. It 
+uses [Plotly](https://github.com/plotly) to create an interactive plot.
+
+**Language:** Python
+
+**Usage:** see subdirectory README
 ## correct_sample_file.py
 
 **Description:** Take a sample file and shuffle the first two columns, so that the sample ID is first and the family ID is second. This is useful for [Hail](https://hail.is/).
@@ -12,7 +20,7 @@ A collection of useful bioinformatics scripts I've written over time.
 
 ## GENs_to_Sorted_8bit_BGENs.sh
 
-**Description:** Take GEN files (eg IMPUTE2 output) and convert them to 8-bit sorted BGEN files organized by chr. Requires [qctool](https://www.well.ox.ac.uk/~gav/qctool_v2/).
+**Description:** Take GEN files (e.g. IMPUTE2 output) and convert them to 8-bit sorted BGEN files organized by chr. Requires [qctool](https://www.well.ox.ac.uk/~gav/qctool_v2/).
 
 **Language:** Bash
 
