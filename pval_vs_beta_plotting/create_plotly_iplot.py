@@ -2,9 +2,8 @@ import os
 import sys
 import argparse
 import pandas as pd
-import numpy as np
 import dash
-from dash import dcc, html, dash_table
+from dash import dcc, html
 import plotly.graph_objs as go
 import webbrowser
 
@@ -189,7 +188,9 @@ def update_scatterplot_and_point(maf_threshold, clickData, figure):
     Update the scatter plot based on the MAF threshold and handle click events to open the desired url.
     """
     # Update the DataFrame based on the MAF threshold
-    filtered_df = df[df['MAF_to_plot'] < maf_threshold]
+    filtered_df = df.loc[df['MAF_to_plot'] < maf_threshold]
+    # Recover the dimensions of the original DataFrame, just with None values where it was filtered out
+    filtered_df = filtered_df.reindex(df.index)
 
     # Make a copy of the original figure to preserve the styling
     updated_scatter = figure.copy()
@@ -198,6 +199,8 @@ def update_scatterplot_and_point(maf_threshold, clickData, figure):
     updated_scatter['data'][0]['x'] = filtered_df['MAF_to_plot']
     updated_scatter['data'][0]['y'] = filtered_df['beta_to_plot']
     updated_scatter['data'][0]['text'] = filtered_df['name']
+    updated_scatter['data'][0]['customdata'][0] = filtered_df['p_value']
+    updated_scatter['data'][0]['customdata'][1] = filtered_df['gene']
 
     # Handle click event
     if clickData:
@@ -258,4 +261,4 @@ app.layout = html.Div([
 ])
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run(debug=True)
