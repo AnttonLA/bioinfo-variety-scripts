@@ -37,11 +37,14 @@ parser.add_argument('-p', '--position_column',
                     help='The name of the column containing the position of the SNP in the chromosome. If none is '
                          'specified, the default name is "position".',
                     default='position')
-parser.add_argument('-pval', '--p_value_column',
+parser.add_argument('-pval', '--p_value_column', required=False,
                     help='The name of the column containing the p-values of the SNPs. Only used if specified.',
                     default=None)
-parser.add_argument('-gene', '--gene_column',
+parser.add_argument('-gene', '--gene_column', required=False,
                     help='The name of the column containing the gene names. Only used if specified.',
+                    default=None)
+parser.add_argument('-trait', '--trait_column', required=False,
+                    help='The name of the trait. If none is specified, the default is "trait".',
                     default=None)
 args = parser.parse_args()
 
@@ -53,9 +56,11 @@ if not os.path.isfile(args.input_file):
 df = pd.read_csv(args.input_file, sep='\t')
 
 
-def check_df_columns():
+def check_df_columns() -> None:
     """
-    Check that the input file contains the columns specified by the user or the default column names.
+    Check that the input file contains the needed columns, either specified by the user or the default column names.
+    Note that 'name_column' is not required, as it can be created from the 'chromosome' and 'position' columns.
+
     :return:
     """
     for argument in [args.maf_column, args.beta_column, args.chromosome_column, args.position_column]:
@@ -65,6 +70,8 @@ def check_df_columns():
         raise ValueError('The input file does not contain the column "{}"'.format(args.p_value_column))
     if args.gene_column and args.gene_column not in df.columns:
         raise ValueError('The input file does not contain the column "{}"'.format(args.gene_column))
+    if args.name_column and args.name_column not in df.columns:
+        raise ValueError('The input file does not contain the column "{}"'.format(args.name_column))
 
 
 check_df_columns()
@@ -96,6 +103,10 @@ if args.gene_column:
     df['gene'] = df[args.gene_column].copy()
 else:
     df['gene'] = None
+if args.trait_column:
+    df['trait'] = df[args.trait_column].copy()
+else:
+    df['trait'] = None
 
 
 def check_maf_percentage_or_fraction(in_df):
@@ -137,12 +148,10 @@ def open_ucsc_page(chromosome, position):
     zoom_out = 10_000
     start_zoom = max(0, int(position) - zoom_out)
     end_zoom = int(position) + zoom_out
-    #    url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{position}-{position}"
+
     url = f"https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr{chromosome}%3A{start_zoom}-{end_zoom}&highlight=chr{chromosome}%3A{position}-{position}"
     webbrowser.open_new_tab(url)
 
-
-# ... (your existing imports)
 
 # Create the Dash app
 app = dash.Dash(__name__)
@@ -158,14 +167,17 @@ scatter = go.Scatter(
         opacity=0.5,
     ),
     text=df['name'],
-    customdata=df[['p_value', 'gene']],
+    customdata=df[['p_value', 'gene', 'trait']],
 )
 
 # Create the figure object
 fig = go.Figure(scatter)
 
 # Define the layout hovertemplate based on the columns that were specified
-if args.p_value_column and args.gene_column:
+# TODO: either do proper combinatorics or establish some sort of hierarchy for optional columns. In most cases all will be used anyway.
+if args.p_value_column and args.gene_column and args.trait_column:
+    hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata[0]}<br>gene: %{customdata[1]}<br>trait: %{customdata[2]}'
+elif args.p_value_column and args.gene_column:
     hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata[0]}<br>gene: %{customdata[1]}'
 elif args.p_value_column:
     hovertemplate_string = 'variant: %{text}<br>MAF: %{x}<br>β: %{y}<br>p-value: %{customdata[0]}'
@@ -201,6 +213,7 @@ def update_scatterplot_and_point(maf_threshold, clickData, figure):
     updated_scatter['data'][0]['text'] = filtered_df['name']
     updated_scatter['data'][0]['customdata'][0] = filtered_df['p_value']
     updated_scatter['data'][0]['customdata'][1] = filtered_df['gene']
+    updated_scatter['data'][0]['customdata'][2] = filtered_df['trait']
 
     # Handle click event
     if clickData:
@@ -262,3 +275,4 @@ app.layout = html.Div([
 
 if __name__ == '__main__':
     app.run(debug=True)
+
